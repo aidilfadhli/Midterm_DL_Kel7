@@ -23,7 +23,13 @@ if str(KODE_DIR) not in sys.path:
     sys.path.insert(0, str(KODE_DIR))
 
 from common.seed import DATA_DIR, FIG_DIR, RESULTS_DIR, ROOT
-from task1_klasifikasi.dataset import CLASSES, IDX_TO_CLASS, MultimodalDefectDataset, compute_sensor_stats
+from task1_klasifikasi.dataset import (
+    CLASSES,
+    IDX_TO_CLASS,
+    MultimodalDefectDataset,
+    compute_image_stats,
+    compute_sensor_stats,
+)
 from task1_klasifikasi.models import (
     ImageOnlyClassifier,
     MultimodalCrossAttention,
@@ -172,9 +178,14 @@ def main():
     train_sub_meta = train_meta.iloc[train_idx].reset_index(drop=True)
     val_sub_meta = train_meta.iloc[val_idx].reset_index(drop=True)
 
-    # Compute sensor stats strictly on training split
+    # Compute sensor & image stats strictly on training split
     sensor_stats = compute_sensor_stats(
         train_npz['sensor'][train_idx],
+        train_sub_meta,
+        per_line=args.per_line_norm,
+    )
+    image_stats = compute_image_stats(
+        train_npz['gambar'][train_idx],
         train_sub_meta,
         per_line=args.per_line_norm,
     )
@@ -184,9 +195,11 @@ def main():
         sensors=train_npz['sensor'][train_idx],
         meta_df=train_sub_meta,
         sensor_stats=sensor_stats,
+        image_stats=image_stats,
         is_train=True,
         sensor_dropout_prob=args.sensor_dropout,
         per_line_norm=args.per_line_norm,
+        augment=True,
     )
 
     val_ds = MultimodalDefectDataset(
@@ -194,6 +207,7 @@ def main():
         sensors=train_npz['sensor'][val_idx],
         meta_df=val_sub_meta,
         sensor_stats=sensor_stats,
+        image_stats=image_stats,
         is_train=False,
         sensor_dropout_prob=0.0,
         per_line_norm=args.per_line_norm,
@@ -245,7 +259,7 @@ def main():
     print(f"\nBest Validation Macro-F1: {best_val_f1:.4f} (Saved to {best_model_path})")
 
     # Load best model for detailed report
-    model.load_state_dict(torch.load(best_model_path, map_location=device))
+    model.load_state_dict(torch.load(best_model_path, map_location=device, weights_only=True))
     _, _, targets, preds = evaluate(model, val_loader, device, criterion)
 
     print("\n=== Detailed Classification Report (Validation) ===")
@@ -293,6 +307,7 @@ def main():
             sensors=test_npz['sensor'],
             meta_df=test_meta,
             sensor_stats=sensor_stats,
+            image_stats=image_stats,
             is_train=False,
             sensor_dropout_prob=0.0,
             per_line_norm=args.per_line_norm,

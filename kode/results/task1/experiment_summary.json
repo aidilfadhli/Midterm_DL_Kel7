@@ -1,0 +1,29 @@
+{
+  "Image-Only": 0.6243151508916787,
+  "Sensor-Only": 0.4601378957581278,
+  "Late Fusion": 0.835597208248447,
+  "Cross-Attention": 0.8418606712393827,
+  "Likely Mislabels (Val conf>=0.85)": 339,
+  "Late Fusion (No Label Smoothing)": 0.8369476209772085,
+  "Global Norm Line A": 0.8754967396620178,
+  "Global Norm Line B": 0.7004162281381774,
+  "Late Fusion (Per-Line Norm)": 0.8268773268641038,
+  "Per-Line Norm Line A": 0.8703707306783991,
+  "Per-Line Norm Line B": 0.6807322332533335,
+  "Cross-Attention (Per-Line Norm)": 0.8414699023049671,
+  "Cross-Attn Per-Line Norm Line A": 0.8796696225230682,
+  "Cross-Attn Per-Line Norm Line B": 0.7098724197429853,
+  "Best Model (100% Missing Sensor)": 0.5777119823899347,
+  "Natural Missing Sensor Val Macro-F1": 0.5497096870899136,
+  "Final Ensemble Line A": 0.8886133692456681,
+  "Final Ensemble Line B": 0.7328078135184255,
+  "Final Model Architecture": "cross_attn",
+  "Final Model Per-Line Norm": false,
+  "Final Model Seeds": {
+    "42": 0.8428126297756996,
+    "123": 0.8435351303784228,
+    "999": 0.8384308483114079
+  },
+  "Final Model (3 Seeds)": "0.8416 +/- 0.0023",
+  "Final 3-Seed Ensemble Val Macro-F1": 0.8533319575574134
+}

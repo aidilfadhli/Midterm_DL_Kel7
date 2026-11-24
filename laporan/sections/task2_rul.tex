@@ -73,7 +73,8 @@ none later than $t$, correct target) and confirms that a deliberately leaky vers
 random cycles between cycle 50 and its failure, which reproduces the test histories well (median
 length 160 vs.\ 162 cycles). The other 720 machines fit the preprocessing and the models; 72 of them
 are held aside for early stopping. Deep models minimise the squared error of $\mathrm{RUL}/150$ with
-Adam and dropout, and are trained with three seeds (0--2; 0--4 for the final ensemble). Every network
+Adam and dropout, and are trained with three seeds (0--2; 0--4 for the final ensemble; all data
+splits and cuts use seed 0). Every network
 first passes a sanity check by memorising a single batch of 64 windows (RMSE below 0.1 cycles). We use
 Python 3.11, PyTorch 2.11.0, NumPy 2.4.6, pandas 3.1.1 and scikit-learn 1.9.1.
 
@@ -174,7 +175,7 @@ better than the boosted trees across folds, so its small lead on the first split
 prediction time, combining a deep ensemble~\cite{lakshminarayanan2017} with MC
 dropout~\cite{gal2016} (five networks $\times$ 20 passes). Raw 90\% intervals contain the true RUL in
 only 63\% of the held-out cuts, because the samples measure how unsure the \emph{model} is, not how
-unpredictable the \emph{machine} is. We calibrate them with split-conformal prediction on the 72
+unpredictable the \emph{machine} is. We calibrate them with split-conformal prediction~\cite{lei2018} on the 72
 held-aside machines, which widens the intervals by a common factor. They then cover 90\% of the
 held-out cuts with a mean width of 50 cycles (Table~\ref{tab:t2-unc}). They are narrow close to failure
 (width 31, coverage 95\%) and wide in mid-life (Fig.~\ref{fig:t2-unc}). At 51--100 cycles coverage

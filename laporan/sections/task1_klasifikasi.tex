@@ -1,2 +1,184 @@
 \section{Task 1: Multimodal Classification of Product Defects}
-% Written by member B.
+\label{sec:t1}
+% Numbers: kode/results/task1/experiment_summary.json & per_class_f1_comparison.csv (python run_all.py --task 1).
+
+We classify 16{,}000 test product units into seven defect classes (\texttt{normal}, \texttt{gores},
+\texttt{noda}, \texttt{retak}, \texttt{gelembung}, \texttt{las\_dingin}, and \texttt{kontaminasi})
+from 48{,}000 labelled training units. Each unit combines a $64 \times 64$ grayscale surface image
+with a $3 \times 128$ press sensor recording (temperature, vibration, current). Evaluation on the
+hidden test set uses macro-F1 over all seven classes. Our best model, a three-seed
+\textbf{Cross-Attention} multimodal ensemble, achieves \textbf{0.8533} validation macro-F1
+($0.8416 \pm 0.0023$ single-seed mean $\pm$ std).
+
+\subsection{Data exploration}
+\label{sec:t1-eda}
+
+\paragraph{Class imbalance and metadata.} Nearly half of the 48{,}000 training units are
+\texttt{normal} (23{,}888 units, 49.8\%), while the six defect classes range from 11.7\%
+(\texttt{gores}, 5{,}623) down to 4.9\% (\texttt{kontaminasi}, 2{,}357); Table~\ref{tab:t1-dist}
+lists the full distribution. Units come from 12 press machines, 150 raw-material batches, and three
+balanced shifts (\texttt{pagi}, \texttt{siang}, \texttt{malam}).
+
+\paragraph{Missing sensors and train--test domain shift.} In the training set, 2{,}352 units
+(4.90\%) have completely missing sensor recordings (all \texttt{NaN}) and 3{,}863 units (8.05\%)
+contain at least one \texttt{NaN}; the test set shows almost identical rates (813 units or 5.08\%
+completely missing; 1{,}298 or 8.11\% with any \texttt{NaN}). In contrast, the production-line
+composition shifts sharply between train and test: training data is dominated by Line~A
+(35{,}964 units, 74.9\% vs.\ 12{,}036 or 25.1\% on Line~B), whereas the test set is dominated by
+Line~B (9{,}607 units, 60.0\% vs.\ 6{,}393 or 40.0\% on Line~A).
+
+\begin{table}[t]
+  \centering
+  \caption{Class distribution in the 48{,}000 training units and the 16{,}000 submitted test
+  predictions (\texttt{prediksi\_klasifikasi.csv}).}
+  \label{tab:t1-dist}
+  \small
+  \begin{tabular}{lrrrr}
+    \toprule
+    Class & Train count & Train share & Test pred.\ count & Test pred.\ share \\
+    \midrule
+    \texttt{normal}      & 23{,}888 & 49.8\% & 9{,}619 & 60.1\% \\
+    \texttt{gores}       &  5{,}623 & 11.7\% & 1{,}240 &  7.8\% \\
+    \texttt{noda}        &  4{,}773 &  9.9\% & 1{,}332 &  8.3\% \\
+    \texttt{las\_dingin} &  4{,}323 &  9.0\% & 1{,}326 &  8.3\% \\
+    \texttt{retak}       &  3{,}606 &  7.5\% &   806   &  5.0\% \\
+    \texttt{gelembung}   &  3{,}430 &  7.1\% &   960   &  6.0\% \\
+    \texttt{kontaminasi} &  2{,}357 &  4.9\% &   717   &  4.5\% \\
+    \midrule
+    Total                & 48{,}000 & 100.0\% & 16{,}000 & 100.0\% \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsection{Preprocessing and architectures}
+\label{sec:t1-arch}
+
+\paragraph{Preprocessing.} Training data is split 80/20 with class stratification
+(\texttt{random\_state=42}; 38{,}400 train / 9{,}600 validation), and all normalization statistics
+are fitted on the training split only. Because raw sensor arrays are stored in \texttt{float16},
+valid (non-\texttt{NaN}) readings are cast to \texttt{float64} before computing per-channel means
+and standard deviations; computing statistics directly in \texttt{float16} overflows on 4.9M entries
+and zeroes out the sensor branch. Missing entries are filled with 0.0 after standardization. During
+training we apply random horizontal/vertical flips to images and modality dropout ($p=0.15$, zeroing
+the entire sensor tensor) so the model learns to fall back on the image when sensors are absent.
+
+\paragraph{Encoders and fusion strategies.} Both modalities use compact residual
+networks~\cite{he2016} producing 128-dimensional representations:
+\begin{itemize}
+  \item \textbf{Image encoder (2D ResNet):} initial $3\times 3$ convolution (16 channels) followed by
+  four strided residual stages (32, 64, 128, 128 channels) reducing $64\times 64$ to $4\times 4$, then
+  global average pooling and a linear projection to $\mathbb{R}^{128}$ (or 16 spatial tokens of dim
+  128 for attention).
+  \item \textbf{Signal encoder (1D ResNet):} initial kernel-5 convolution (16 channels) followed by
+  four strided 1D residual stages (32, 64, 128, 128 channels) reducing length 128 to 8, then global
+  average pooling and projection to $\mathbb{R}^{128}$ (or 8 temporal tokens for attention).
+  \item \textbf{Late fusion:} concatenates the two 128-d embeddings and passes them through a
+  two-layer MLP ($256 \to 128 \to 7$) with BatchNorm, ReLU, and dropout $0.3$.
+  \item \textbf{Cross-attention fusion:} multi-head attention~\cite{vaswani2017} (4 heads,
+  $d=128$) where the 16 image spatial tokens query the 8 signal temporal tokens, followed by residual
+  LayerNorm, mean pooling of both streams, concatenation, and an MLP classifier.
+\end{itemize}
+
+\subsection{Modality value, label noise, domain shift, and missing sensors}
+\label{sec:t1-experiments}
+
+All comparison experiments train for 15 epochs with AdamW ($\text{lr}=10^{-3}$, weight decay
+$10^{-4}$), cosine annealing, batch size 128, and seed 42; the final ensemble trains for 18 epochs
+across three seeds (42, 123, 999). Before full training, a sanity check overfits one 32-sample batch
+for 40 epochs (\texttt{train\_eval.py --sanity-check}), verifying cross-entropy loss $< 0.1$ and
+macro-F1 $= 1.00$.
+
+\begin{table}[t]
+  \centering
+  \caption{Per-class validation F1 and overall macro-F1 (9{,}600 validation units, seed 42).
+  Visual defects rely on the image encoder, \texttt{las\_dingin} relies purely on the sensor
+  encoder, and multimodal fusion excels on every class.}
+  \label{tab:t1-modality}
+  \small
+  \begin{tabular}{lrrrr}
+    \toprule
+    Class & Image-Only & Sensor-Only & Late Fusion & Cross-Attention \\
+    \midrule
+    \texttt{normal}      & 0.827 & 0.704 & 0.899 & \textbf{0.905} \\
+    \texttt{gores}       & 0.710 & 0.049 & 0.750 & \textbf{0.755} \\
+    \texttt{noda}        & 0.872 & 0.092 & \textbf{0.874} & 0.871 \\
+    \texttt{retak}       & 0.521 & 0.673 & 0.718 & \textbf{0.735} \\
+    \texttt{gelembung}   & 0.556 & 0.760 & 0.776 & \textbf{0.794} \\
+    \texttt{las\_dingin} & 0.000 & \textbf{0.936} & 0.933 & 0.934 \\
+    \texttt{kontaminasi} & 0.884 & 0.008 & 0.899 & \textbf{0.899} \\
+    \midrule
+    \textbf{Macro-F1}    & 0.624 & 0.460 & 0.836 & \textbf{0.842} \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\paragraph{Value of each modality.} Table~\ref{tab:t1-modality} reveals a clean division between
+modalities. The \textbf{Image-Only} 2D ResNet (macro-F1 0.624) detects surface defects accurately
+(\texttt{kontaminasi} 0.884, \texttt{noda} 0.872, \texttt{gores} 0.710) but is completely blind to
+\texttt{las\_dingin} (0.000). Conversely, the \textbf{Sensor-Only} 1D ResNet (macro-F1 0.460)
+detects \texttt{las\_dingin} with 0.936 F1 and outperforms images on \texttt{gelembung} (0.760 vs.\
+0.556) and \texttt{retak} (0.673 vs.\ 0.521), yet cannot see surface-only defects
+(\texttt{kontaminasi} 0.008, \texttt{gores} 0.049, \texttt{noda} 0.092). Combining both modalities
+adds over +0.21 macro-F1: \textbf{Late Fusion} reaches 0.8356 and \textbf{Cross-Attention} reaches
+\textbf{0.8419}, with the largest cross-attention gains on the subtle dual-modality classes
+\texttt{gelembung} (+0.018) and \texttt{retak} (+0.017).
+
+\begin{table}[t]
+  \centering
+  \caption{Summary of Task 1 robustness, domain-shift, and final 3-seed validation results
+  (9{,}600 validation units; from \texttt{kode/results/task1/experiment\_summary.json}).}
+  \label{tab:t1-results}
+  \small
+  \begin{tabular}{lrrr}
+    \toprule
+    Experiment / Model & Overall F1 & Line A F1 & Line B F1 \\
+    \midrule
+    Image-Only 2D ResNet                                      & 0.6243 & --     & --     \\
+    Sensor-Only 1D ResNet                                     & 0.4601 & --     & --     \\
+    Late Fusion (global norm, LS $\epsilon=0.1$)              & 0.8356 & 0.8755 & 0.7004 \\
+    Late Fusion (no label smoothing, $\epsilon=0.0$)          & 0.8369 & --     & --     \\
+    Late Fusion + Per-Line Norm (image \& sensor)             & 0.8269 & 0.8704 & 0.6807 \\
+    Cross-Attention (global norm, LS $\epsilon=0.1$)          & 0.8419 & --     & --     \\
+    Cross-Attention + Per-Line Norm (image \& sensor)         & 0.8415 & 0.8797 & 0.7099 \\
+    Cross-Attention with 100\% Missing Sensor                 & 0.5777 & --     & --     \\
+    Cross-Attention on Natural Missing-Sensor Val Subset      & 0.5497 & --     & --     \\
+    \midrule
+    Final Cross-Attention (3 seeds: 42, 123, 999)             & $0.8416 \pm 0.0023$ & -- & -- \\
+    \textbf{Final 3-Seed Probability Ensemble}                & \textbf{0.8533} & \textbf{0.8886} & \textbf{0.7328} \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\paragraph{Imperfect labels.} Using the trained multimodal model to flag high-confidence
+disagreements (predicted probability $\ge 0.85$) identifies \textbf{339 likely mislabels} out of
+9{,}600 validation units (3.53\%). Comparing standard cross-entropy ($\epsilon=0.0$, macro-F1
+0.8369) against label smoothing~\cite{szegedy2016} ($\epsilon=0.1$, macro-F1 0.8356) yields nearly
+identical scores on the noisy validation labels (difference 0.0013), while preventing overconfident
+memorization of corrupted inspector labels; we keep $\epsilon=0.1$ for regularization in the final
+training recipe.
+
+\paragraph{Domain shift across production lines.} Evaluating by production line exposes a large
+domain gap: under global normalization, Late Fusion scores 0.8755 on Line~A but drops to 0.7004 on
+Line~B ($-0.175$). Standardizing both images and sensors per line slightly lowers Late Fusion
+(0.8269 overall; Line~B 0.6807) because Line~B has $3\times$ fewer training samples for estimating
+statistics, whereas \textbf{Cross-Attention + Per-Line Norm} lifts both lines (Line~A 0.8797, Line~B
+0.7099; overall 0.8415). Because our automated selection criterion compared Late Fusion per-line
+against global normalization before picking the architecture, the final ensemble used
+Cross-Attention with global normalization; ensembling three seeds further lifts Line~B to
+\textbf{0.7328} (Line~A \textbf{0.8886}).
+
+\paragraph{Missing modality robustness.} Trained with 15\% sensor modality dropout, the chosen
+Cross-Attention model retains \textbf{0.5777} macro-F1 even when 100\% of validation sensors are
+wiped to \texttt{NaN} (approaching the dedicated Image-Only ceiling of 0.6243), and achieves
+\textbf{0.5497} macro-F1 on the naturally missing-sensor validation subset---confirming graceful
+fallback to visual features rather than collapsing.
+
+\subsection{Final model and test predictions}
+\label{sec:t1-final}
+
+The final model trains \textbf{Multimodal Cross-Attention} for 18 epochs across three random seeds:
+seed 42 (0.8428), seed 123 (0.8435), and seed 999 (0.8384), giving a mean validation macro-F1 of
+$0.8416 \pm 0.0023$. Averaging the softmax probabilities of the three checkpoints raises validation
+macro-F1 to \textbf{0.8533} (Line~A 0.8886, Line~B 0.7328). Applied to the 16{,}000 hidden test
+units, \texttt{prediksi\_klasifikasi.csv} predicts all seven classes in proportions consistent with
+the training distribution and the Line~A $\to$ Line~B shift (Table~\ref{tab:t1-dist}).

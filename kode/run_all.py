@@ -24,6 +24,27 @@ from task2_rul import uncertainty as t2_uncertainty
 from task2_rul import validation as t2_validation
 from task2_rul import windows as t2_windows
 
+def run_task3() -> None:
+    """Task 3: execute the notebook; it writes cluster.csv, results.json and figures itself.
+
+    The full run was done on a Colab T4 (see task3_clustering/README.md). Locally this needs the
+    GPU/time for SimCLR; use FAST = True in the notebook for a smoke test.
+    """
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    here = Path(__file__).resolve().parent
+    out = here / "results" / "task3"
+    out.mkdir(parents=True, exist_ok=True)
+    subprocess.run(
+        [sys.executable, "-m", "jupyter", "nbconvert", "--to", "notebook", "--execute",
+         str(here / "task3_clustering" / "task3_clustering.ipynb"), "--output-dir", str(out),
+         "--ExecutePreprocessor.timeout=-1"],
+        check=True,
+    )
+
+
 # Filled in step by step as each part of a task is implemented.
 TASKS = {
     1: [t1_train_eval.run_sanity_check,  # (g) overfit-one-batch sanity check
@@ -41,7 +62,7 @@ TASKS = {
         t2_maintenance.main,         # (f2) when to service: replay held-out machines, point vs cautious rule (~2.5 min)
         t2_final.main,               # final: shift by simulation, 5 GRUs on all 900 machines, prediksi_rul.csv (~3 min)
         t2_demo.main],               # check: recomputed numbers must match the report and prediksi_rul.csv
-    3: [],  # Task 3 (clustering)
+    3: [run_task3],  # (a-f) notebook: SimCLR, fusion, KMeans/GMM/Agglomerative/graph/DEC, K criteria, UMAP/t-SNE + cluster.csv
 }
 
 
